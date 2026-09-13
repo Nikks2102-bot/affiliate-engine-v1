@@ -1,3 +1,4 @@
+// Latest deployment trigger: keep GitHub and Cloudflare Worker in sync.
 interface Env {
   DB: D1Database;
   BANKROLL_CENTS?: string;
