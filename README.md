@@ -2,36 +2,63 @@
 
 A controlled affiliate-marketing engine for small-budget experiments. V1 focuses on measurement, UTM/event tracking and hard spending guardrails. **It does not autonomously move money or scale campaigns without approval.**
 
+## Runtime
+
+V1 now targets **Cloudflare Workers + D1** instead of a long-running Node server + PostgreSQL. Cloudflare officially supports Express.js on Workers with the `nodejs_compat` compatibility flag and D1 bindings.
+
+- Cloudflare Worker entrypoint: `src/index.ts`
+- Wrangler config: `wrangler.jsonc`
+- D1 schema: `schema.sql`
+- D1 is optional in the code: until a database is bound, the app uses temporary in-memory metrics for smoke testing.
+
 ## Current V1
 
-- PostgreSQL event store when `DATABASE_URL` is configured.
 - Metrics: spend, commission, conversions, clicks, impressions, profit, CPA and ROAS.
 - Hard bankroll ceiling: default ₹2,000.
 - Default test-spend ceiling: ₹500.
 - Automatic decision suggestions: HOLD, PAUSE_LOSERS, PAUSE_ALL or SCALE_CANDIDATE.
 - Simple browser dashboard at `/`.
 - API endpoint for recording conversion/ad events.
-- Environment-based secrets; never commit tokens.
+- Environment-based configuration; never commit tokens.
+- Money-moving actions remain approval-gated.
 
-## Run
+## Local development
 
 ```bash
 npm install
+npm run cf-typegen
 npm run dev
 ```
 
-For production:
+## Cloudflare deployment
 
-```bash
-npm run build
-npm start
-```
+1. Create a Cloudflare Worker from the GitHub repository `Nikks2102-bot/affiliate-engine-v1`.
+2. Set the Worker environment variables for the guardrails:
+   - `BANKROLL_CENTS=200000`
+   - `MAX_DAILY_SPEND_CENTS=50000`
+   - `MAX_TOTAL_LOSS_CENTS=200000`
+   - `AUTOMATION_MODE=approval_required`
+3. For persistent storage, create a D1 database and bind it to the Worker as `DB`.
+4. Apply `schema.sql` to the D1 database.
+5. Deploy. Cloudflare will provide a `workers.dev` URL.
 
-Set `DATABASE_URL` to a PostgreSQL connection string for persistent metrics. Without it, the server uses temporary in-memory metrics.
+The app will still boot without D1, which makes the first deployment easy to smoke-test before persistence is configured.
 
-## Event API
+## API
 
-`POST /api/events`
+### `GET /health`
+
+Returns a simple Worker health response.
+
+### `GET /api/config`
+
+Returns guardrail configuration and whether D1 is active.
+
+### `GET /api/metrics`
+
+Returns current spend, commission, conversions, clicks, impressions, profit, CPA, ROAS, bankroll remaining and the current rule-engine decision.
+
+### `POST /api/events`
 
 Example conversion event:
 
