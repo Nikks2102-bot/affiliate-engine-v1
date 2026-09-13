@@ -9,6 +9,13 @@ const port = Number(process.env.PORT || 3000);
 const pool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
   : null;
+const edgeSecret = process.env.EDGE_SHARED_SECRET;
+
+app.use((req, res, next) => {
+  if (!edgeSecret) return next();
+  if (req.header('x-edge-secret') !== edgeSecret) return res.status(403).json({ error: 'Edge gateway required' });
+  next();
+});
 
 const cents = (value: string | number | undefined) => Math.round(Number(value || 0) * 100);
 const envCents = (name: string, fallback: number) => {
@@ -43,10 +50,7 @@ async function initDb() {
 
 async function record(type: string, campaignId: string | undefined, amountCents: number, metadata: object = {}) {
   if (pool) {
-    await pool.query(
-      'INSERT INTO events(type,campaign_id,amount_cents,metadata) VALUES($1,$2,$3,$4)',
-      [type, campaignId || null, amountCents, metadata],
-    );
+    await pool.query('INSERT INTO events(type,campaign_id,amount_cents,metadata) VALUES($1,$2,$3,$4)', [type, campaignId || null, amountCents, metadata]);
     return;
   }
   if (type === 'spend') memory.spend += amountCents;
@@ -80,32 +84,14 @@ function decision(t: { spend: number; commission: number; conversions: number })
 }
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'affiliate-engine-v1', runtime: 'railway-core', database: pool ? 'postgres' : 'memory-fallback' }));
-
-app.get('/api/config', (_req, res) => res.json({
-  bankrollCents: config.bankroll,
-  maxDailySpendCents: config.maxDailySpend,
-  maxTotalLossCents: config.maxTotalLoss,
-  automationMode: config.automationMode,
-  database: pool ? 'postgres' : 'memory-fallback',
-  moneyMovingActionsRequireApproval: true,
-}));
+app.get('/api/config', (_req, res) => res.json({ bankrollCents: config.bankroll, maxDailySpendCents: config.maxDailySpend, maxTotalLossCents: config.maxTotalLoss, automationMode: config.automationMode, database: pool ? 'postgres' : 'memory-fallback', moneyMovingActionsRequireApproval: true }));
 
 app.get('/api/metrics', async (_req, res) => {
   try {
     const t = await totals();
     const profit = Number(t.commission || 0) - Number(t.spend || 0);
-    res.json({
-      ...t,
-      profitCents: profit,
-      cpaCents: t.conversions ? Math.round(t.spend / t.conversions) : null,
-      roas: t.spend ? Number((t.commission / t.spend).toFixed(2)) : null,
-      decision: decision(t),
-      bankrollRemainingCents: Math.max(0, config.bankroll - t.spend),
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to calculate metrics' });
-  }
+    res.json({ ...t, profitCents: profit, cpaCents: t.conversions ? Math.round(t.spend / t.conversions) : null, roas: t.spend ? Number((t.commission / t.spend).toFixed(2)) : null, decision: decision(t), bankrollRemainingCents: Math.max(0, config.bankroll - t.spend) });
+  } catch (error) { console.error(error); res.status(500).json({ error: 'Failed to calculate metrics' }); }
 });
 
 app.post('/api/events', async (req, res) => {
@@ -113,15 +99,10 @@ app.post('/api/events', async (req, res) => {
   if (!['spend', 'commission', 'click', 'impression'].includes(type)) return res.status(400).json({ error: 'Invalid event type' });
   const amountCents = type === 'click' || type === 'impression' ? 0 : cents(amount);
   if (!Number.isFinite(amountCents) || amountCents < 0) return res.status(400).json({ error: 'Invalid amount' });
-  try {
-    await record(type, campaignId, amountCents, metadata || {});
-    res.status(201).json(await totals());
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to record event' });
-  }
+  try { await record(type, campaignId, amountCents, metadata || {}); res.status(201).json(await totals()); }
+  catch (error) { console.error(error); res.status(500).json({ error: 'Failed to record event' }); }
 });
 
-app.get('/', (_req, res) => res.json({ service: 'affiliate-engine-v1', role: 'railway-core', edge: 'Cloudflare Workers', endpoints: ['/health', '/api/config', '/api/metrics', '/api/events'] }));
+app.get('/', (_req, res) => res.json({ service: 'affiliate-engine-v1', role: 'railway-core', edge: 'Cloudflare Workers' }));
 
 initDb().then(() => app.listen(port, () => console.log(`Affiliate Engine Railway core listening on ${port}`))).catch((error) => { console.error(error); process.exit(1); });
