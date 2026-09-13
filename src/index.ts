@@ -11,6 +11,9 @@ interface Env {
   META_API_VERSION?: string;
   META_PAGE_ID?: string;
   META_PIXEL_ID?: string;
+  AFFILIATE_URL?: string;
+  OFFER_NAME?: string;
+  OFFER_DESCRIPTION?: string;
 }
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=UTF-8' } });
@@ -20,10 +23,16 @@ const config = (env: Env) => ({
   maxDailySpend: Number(env.MAX_DAILY_SPEND_CENTS || 50000),
   maxTotalLoss: Number(env.MAX_TOTAL_LOSS_CENTS || 200000),
   automationMode: env.AUTOMATION_MODE || 'approval_required',
-  metaEnabled: env.META_ENABLED === 'true'
+  metaEnabled: env.META_ENABLED === 'true',
+  offerConfigured: Boolean(env.AFFILIATE_URL)
 });
 
-const dashboard = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Affiliate Engine</title><style>body{font-family:system-ui;max-width:1000px;margin:30px auto;padding:0 18px;background:#f7f7f7}.hero{padding:18px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.card{background:#fff;border:1px solid #ddd;border-radius:14px;padding:16px}.value{font-size:24px;font-weight:750;margin-top:5px}button{padding:10px 14px;border-radius:9px;border:1px solid #aaa;background:#fff}pre{background:#111;color:#eee;padding:16px;border-radius:12px;overflow:auto}</style></head><body><div class="hero"><h1>Affiliate Engine V1</h1><p>Cloudflare Worker + D1. Controlled affiliate testing with hard bankroll limits.</p></div><div class="grid" id="cards"></div><p><button onclick="load()">Refresh</button></p><pre id="decision">Loading...</pre><script>async function load(){try{const r=await fetch('/api/metrics');const m=await r.json();if(!r.ok)throw Error(m.error||'API error');const labels=[['Spend',m.spend],['Commission',m.commission],['Profit',m.profitCents],['Conversions',m.conversions],['Clicks',m.clicks],['CPA',m.cpaCents??'-'],['ROAS',m.roas??'-']];document.getElementById('cards').innerHTML=labels.map(x=>'<div class="card"><div>'+x[0]+'</div><div class="value">'+x[1]+'</div></div>').join('');document.getElementById('decision').textContent=JSON.stringify(m.decision,null,2)}catch(e){document.getElementById('decision').textContent=e.message}}load();</script></body></html>`;
+const landingPage = (env: Env, requestUrl: URL) => {
+  const name = env.OFFER_NAME || 'Recommended service';
+  const description = env.OFFER_DESCRIPTION || 'Explore this offer and see whether it is right for you.';
+  const qs = requestUrl.search;
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${name}</title><style>body{font-family:system-ui;max-width:760px;margin:0 auto;padding:28px 18px;background:#f7f7f7;color:#111}.card{background:#fff;border:1px solid #ddd;border-radius:18px;padding:28px;margin-top:12vh;box-shadow:0 8px 30px #0000000d}h1{font-size:34px;margin:0 0 12px}p{font-size:18px;line-height:1.55;color:#444}.cta{display:inline-block;background:#111;color:#fff;text-decoration:none;padding:14px 20px;border-radius:10px;font-weight:700;margin-top:10px}.note{font-size:13px;color:#666;margin-top:24px}</style></head><body><main class="card"><h1>${name}</h1><p>${description}</p><a class="cta" href="/go${qs}">Learn more</a><p class="note">Disclosure: This page may contain an affiliate link. If you purchase through it, we may earn a commission at no extra cost to you.</p></main></body></html>`;
+};
 
 async function ensureSchema(env: Env) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, campaign_id TEXT, amount_cents INTEGER NOT NULL DEFAULT 0, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`).run();
@@ -50,7 +59,11 @@ function decision(t: {spend:number; commission:number; conversions:number}, c: R
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/') return new Response(dashboard, {headers:{'content-type':'text/html; charset=UTF-8'}});
+    if (url.pathname === '/') return new Response(landingPage(env, url), {headers:{'content-type':'text/html; charset=UTF-8'}});
+    if (url.pathname === '/dashboard') {
+      const dashboard = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Affiliate Engine</title><style>body{font-family:system-ui;max-width:1000px;margin:30px auto;padding:0 18px;background:#f7f7f7}.hero{padding:18px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.card{background:#fff;border:1px solid #ddd;border-radius:14px;padding:16px}.value{font-size:24px;font-weight:750;margin-top:5px}button{padding:10px 14px;border-radius:9px;border:1px solid #aaa;background:#fff}pre{background:#111;color:#eee;padding:16px;border-radius:12px;overflow:auto}</style></head><body><div class="hero"><h1>Affiliate Engine V1</h1><p>Cloudflare Worker + D1. Controlled affiliate testing with hard bankroll limits.</p></div><div class="grid" id="cards"></div><p><button onclick="load()">Refresh</button></p><pre id="decision">Loading...</pre><script>async function load(){try{const r=await fetch('/api/metrics');const m=await r.json();if(!r.ok)throw Error(m.error||'API error');const labels=[['Spend',m.spend],['Commission',m.commission],['Profit',m.profitCents],['Conversions',m.conversions],['Clicks',m.clicks],['CPA',m.cpaCents??'-'],['ROAS',m.roas??'-']];document.getElementById('cards').innerHTML=labels.map(x=>'<div class="card"><div>'+x[0]+'</div><div class="value">'+x[1]+'</div></div>').join('');document.getElementById('decision').textContent=JSON.stringify(m.decision,null,2)}catch(e){document.getElementById('decision').textContent=e.message}}load();</script></body></html>`;
+      return new Response(dashboard, {headers:{'content-type':'text/html; charset=UTF-8'}});
+    }
     if (url.pathname === '/health') {
       try { await ensureSchema(env); return json({ok:true,service:'affiliate-engine-v1',runtime:'cloudflare-worker',database:'d1'}); }
       catch { return json({ok:false,service:'affiliate-engine-v1',runtime:'cloudflare-worker',database:'d1-unavailable'},503); }
@@ -59,6 +72,13 @@ export default {
     if (url.pathname === '/api/metrics' && request.method === 'GET') {
       try { const t=await totals(env); const profit=t.commission-t.spend; return json({...t,profitCents:profit,cpaCents:t.conversions?Math.round(t.spend/t.conversions):null,roas:t.spend?Number((t.commission/t.spend).toFixed(2)):null,decision:decision(t,config(env)),bankrollRemainingCents:Math.max(0,config(env).bankroll-t.spend)}); }
       catch { return json({error:'Failed to calculate metrics'},500); }
+    }
+    if (url.pathname === '/go' && request.method === 'GET') {
+      if (!env.AFFILIATE_URL) return json({error:'Affiliate URL not configured'},503);
+      await ensureSchema(env);
+      const metadata = Object.fromEntries(url.searchParams.entries());
+      await env.DB.prepare('INSERT INTO events(type,campaign_id,amount_cents,metadata) VALUES(?,?,?,?)').bind('click', url.searchParams.get('campaign') || null, 0, JSON.stringify(metadata)).run();
+      return Response.redirect(env.AFFILIATE_URL, 302);
     }
     if (url.pathname === '/api/events' && request.method === 'POST') {
       const secret=env.ADMIN_SECRET;
