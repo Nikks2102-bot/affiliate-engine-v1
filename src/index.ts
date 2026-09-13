@@ -5,6 +5,12 @@ interface Env {
   MAX_TOTAL_LOSS_CENTS?: string;
   AUTOMATION_MODE?: string;
   ADMIN_SECRET?: string;
+  META_ENABLED?: string;
+  META_ACCESS_TOKEN?: string;
+  META_AD_ACCOUNT_ID?: string;
+  META_API_VERSION?: string;
+  META_PAGE_ID?: string;
+  META_PIXEL_ID?: string;
 }
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
@@ -16,7 +22,8 @@ const config = (env: Env) => ({
   bankroll: Number(env.BANKROLL_CENTS || 200000),
   maxDailySpend: Number(env.MAX_DAILY_SPEND_CENTS || 50000),
   maxTotalLoss: Number(env.MAX_TOTAL_LOSS_CENTS || 200000),
-  automationMode: env.AUTOMATION_MODE || 'approval_required'
+  automationMode: env.AUTOMATION_MODE || 'approval_required',
+  metaEnabled: env.META_ENABLED === 'true'
 });
 
 const dashboard = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Affiliate Engine</title><style>body{font-family:system-ui;max-width:1000px;margin:30px auto;padding:0 18px;background:#f7f7f7}.hero{padding:18px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.card{background:#fff;border:1px solid #ddd;border-radius:14px;padding:16px}.value{font-size:24px;font-weight:750;margin-top:5px}button{padding:10px 14px;border-radius:9px;border:1px solid #aaa;background:#fff}pre{background:#111;color:#eee;padding:16px;border-radius:12px;overflow:auto}</style></head><body><div class="hero"><h1>Affiliate Engine V1</h1><p>Cloudflare Worker + D1. Controlled affiliate testing with hard bankroll limits.</p></div><div class="grid" id="cards"></div><p><button onclick="load()">Refresh</button></p><pre id="decision">Loading...</pre><script>async function load(){try{const r=await fetch('/api/metrics');const m=await r.json();if(!r.ok)throw Error(m.error||'API error');const labels=[['Spend',m.spend],['Commission',m.commission],['Profit',m.profitCents],['Conversions',m.conversions],['Clicks',m.clicks],['CPA',m.cpaCents??'-'],['ROAS',m.roas??'-']];document.getElementById('cards').innerHTML=labels.map(x=>'<div class="card"><div>'+x[0]+'</div><div class="value">'+x[1]+'</div></div>').join('');document.getElementById('decision').textContent=JSON.stringify(m.decision,null,2)}catch(e){document.getElementById('decision').textContent=e.message}}load();</script></body></html>`;
