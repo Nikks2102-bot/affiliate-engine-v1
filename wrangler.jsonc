@@ -3,8 +3,18 @@
   "name": "affiliate-engine-v1",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-13",
-  "compatibility_flags": ["nodejs_compat"],
-  "observability": {
-    "enabled": true
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "affiliate-engine-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "vars": {
+    "BANKROLL_CENTS": "200000",
+    "MAX_DAILY_SPEND_CENTS": "50000",
+    "MAX_TOTAL_LOSS_CENTS": "200000",
+    "AUTOMATION_MODE": "approval_required"
   }
 }
