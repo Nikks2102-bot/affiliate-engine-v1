@@ -1,66 +1,79 @@
 # Affiliate Engine V1
 
-A controlled affiliate-marketing engine for small-budget experiments. V1 focuses on measurement, UTM/event tracking and hard spending guardrails. **It does not autonomously move money or scale campaigns without approval.**
+Controlled affiliate-marketing engine for small-budget experiments. V1 measures traffic and commissions and enforces hard spending guardrails. **Money-moving actions remain approval-gated.**
 
 ## Runtime
 
-V1 now targets **Cloudflare Workers + D1** instead of a long-running Node server + PostgreSQL. Cloudflare officially supports Express.js on Workers with the `nodejs_compat` compatibility flag and D1 bindings.
+The production architecture is **Cloudflare edge gateway → Railway core → Railway PostgreSQL**.
 
 - Cloudflare Worker entrypoint: `src/index.ts`
+- Railway core entrypoint: `src/railway.ts`
 - Wrangler config: `wrangler.jsonc`
-- D1 schema: `schema.sql`
-- D1 is optional in the code: until a database is bound, the app uses temporary in-memory metrics for smoke testing.
+- PostgreSQL schema/bootstrap: `schema.sql`
+
+The Railway core uses the private Railway PostgreSQL network connection. The internal Railway connection is configured without SSL because this PostgreSQL endpoint does not accept SSL. The Cloudflare edge is intended to be the public gateway, while the Railway API is protected with `EDGE_SHARED_SECRET` except for `/health`.
 
 ## Current V1
 
 - Metrics: spend, commission, conversions, clicks, impressions, profit, CPA and ROAS.
 - Hard bankroll ceiling: default ₹2,000.
 - Default test-spend ceiling: ₹500.
-- Automatic decision suggestions: HOLD, PAUSE_LOSERS, PAUSE_ALL or SCALE_CANDIDATE.
-- Simple browser dashboard at `/`.
-- API endpoint for recording conversion/ad events.
-- Environment-based configuration; never commit tokens.
+- Decision suggestions: HOLD, PAUSE_LOSERS, PAUSE_ALL or SCALE_CANDIDATE.
+- Browser dashboard at `/`.
+- Event API for ad/conversion tracking.
+- PostgreSQL persistence on Railway.
 - Money-moving actions remain approval-gated.
 
-## Local development
+## Railway deployment
+
+Build command:
 
 ```bash
-npm install
-npm run cf-typegen
-npm run dev
+npm run build:railway
 ```
 
-## Cloudflare deployment
+Start command:
 
-1. Create a Cloudflare Worker from the GitHub repository `Nikks2102-bot/affiliate-engine-v1`.
-2. Set the Worker environment variables for the guardrails:
-   - `BANKROLL_CENTS=200000`
-   - `MAX_DAILY_SPEND_CENTS=50000`
-   - `MAX_TOTAL_LOSS_CENTS=200000`
-   - `AUTOMATION_MODE=approval_required`
-3. For persistent storage, create a D1 database and bind it to the Worker as `DB`.
-4. Apply `schema.sql` to the D1 database.
-5. Deploy. Cloudflare will provide a `workers.dev` URL.
+```bash
+npm run start:railway
+```
 
-The app will still boot without D1, which makes the first deployment easy to smoke-test before persistence is configured.
+Healthcheck:
+
+```text
+/health
+```
+
+Required Railway variables:
+
+- `DATABASE_URL` — PostgreSQL connection string using Railway private networking.
+- `EDGE_SHARED_SECRET` — secret shared only with the Cloudflare edge.
+- `BANKROLL_CENTS=200000`
+- `MAX_DAILY_SPEND_CENTS=50000`
+- `MAX_TOTAL_LOSS_CENTS=200000`
+- `AUTOMATION_MODE=approval_required`
+
+## Cloudflare edge
+
+The Worker forwards protected API traffic to the Railway core and supplies the shared edge secret. Keep `EDGE_SHARED_SECRET` out of GitHub and client-side code.
 
 ## API
 
 ### `GET /health`
 
-Returns a simple Worker health response.
+Performs a PostgreSQL connectivity check on Railway and returns HTTP 200 only when the core can reach its configured database.
 
 ### `GET /api/config`
 
-Returns guardrail configuration and whether D1 is active.
+Returns guardrail configuration and database mode. Protected by the edge secret when configured.
 
 ### `GET /api/metrics`
 
-Returns current spend, commission, conversions, clicks, impressions, profit, CPA, ROAS, bankroll remaining and the current rule-engine decision.
+Returns spend, commission, conversions, clicks, impressions, profit, CPA, ROAS, bankroll remaining and the current rule-engine decision.
 
 ### `POST /api/events`
 
-Example conversion event:
+Example:
 
 ```json
 {
@@ -75,8 +88,8 @@ Allowed event types: `spend`, `commission`, `click`, `impression`.
 
 ## Safety model
 
-The engine treats the ₹2,000 bankroll as a hard ceiling. It never contains credentials in source code and V1 intentionally stops short of autonomous campaign creation/scaling. Meta API integration can be added after the affiliate offer, landing page, tracking and account permissions are verified.
+The engine treats the ₹2,000 bankroll as a hard ceiling. It never commits credentials to source code and does not autonomously create or scale paid campaigns without approval. Meta API integration should only be enabled after the affiliate offer, landing page, tracking and account permissions are verified.
 
 ## Important affiliate rule
 
-For Fiverr paid traffic, traffic should first land on an affiliate-owned website/landing page rather than linking paid ads directly to Fiverr, and all affiliate-program and Meta advertising rules must be followed.
+For Fiverr paid traffic, paid traffic should first land on an affiliate-owned website/landing page rather than linking paid ads directly to Fiverr, and all affiliate-program and Meta advertising rules must be followed.
