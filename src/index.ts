@@ -1,4 +1,4 @@
-// Latest deployment trigger: keep GitHub and Cloudflare Worker in sync.
+// Deployment webhook test: refresh GitHub -> Cloudflare Builds integration.
 interface Env {
   DB: D1Database;
   BANKROLL_CENTS?: string;
