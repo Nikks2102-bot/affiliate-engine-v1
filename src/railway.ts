@@ -7,7 +7,7 @@ app.use(express.json({ limit: '32kb' }));
 
 const port = Number(process.env.PORT || 3000);
 const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: false })
   : null;
 const edgeSecret = process.env.EDGE_SHARED_SECRET;
 
@@ -85,7 +85,17 @@ function decision(t: { spend: number; commission: number; conversions: number })
   return { action: 'HOLD', reason: 'Need more data before changing spend' };
 }
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'affiliate-engine-v1', runtime: 'railway-core', database: pool ? 'postgres' : 'memory-fallback' }));
+app.get('/health', async (_req, res) => {
+  if (!pool) return res.status(503).json({ ok: false, service: 'affiliate-engine-v1', runtime: 'railway-core', database: 'not-configured' });
+  try {
+    await pool.query('SELECT 1');
+    return res.json({ ok: true, service: 'affiliate-engine-v1', runtime: 'railway-core', database: 'postgres' });
+  } catch (error) {
+    console.error(error);
+    return res.status(503).json({ ok: false, service: 'affiliate-engine-v1', runtime: 'railway-core', database: 'postgres-unavailable' });
+  }
+});
+
 app.get('/api/config', (_req, res) => res.json({ bankrollCents: config.bankroll, maxDailySpendCents: config.maxDailySpend, maxTotalLossCents: config.maxTotalLoss, automationMode: config.automationMode, database: pool ? 'postgres' : 'memory-fallback', moneyMovingActionsRequireApproval: true }));
 
 app.get('/api/metrics', async (_req, res) => {
