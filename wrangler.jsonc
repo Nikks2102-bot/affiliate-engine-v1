@@ -8,7 +8,7 @@
     {
       "binding": "DB",
       "database_name": "affiliate-engine-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "75ec8dfc-ebf4-4dd7-90c9-816faa3e5966"
     }
   ],
   "vars": {
