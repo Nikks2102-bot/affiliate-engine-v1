@@ -11,7 +11,9 @@ const pool = process.env.DATABASE_URL
   : null;
 const edgeSecret = process.env.EDGE_SHARED_SECRET;
 
+// Railway's health probe must remain public. Protect the application API behind Cloudflare.
 app.use((req, res, next) => {
+  if (req.path === '/health') return next();
   if (!edgeSecret) return next();
   if (req.header('x-edge-secret') !== edgeSecret) return res.status(403).json({ error: 'Edge gateway required' });
   next();
