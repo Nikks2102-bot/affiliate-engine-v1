@@ -1,4 +1,3 @@
-// Deployment webhook test: refresh GitHub -> Cloudflare Builds integration.
 interface Env {
   DB: D1Database;
   BANKROLL_CENTS?: string;
@@ -15,9 +14,24 @@ interface Env {
   AFFILIATE_URL?: string;
   OFFER_NAME?: string;
   OFFER_DESCRIPTION?: string;
+  WHATSAPP_NUMBER?: string;
 }
 
-const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=UTF-8' } });
+type OfferType = 'affiliate' | 'lead' | 'service' | 'digital';
+
+type Offer = {
+  id: string;
+  type: OfferType;
+  name: string;
+  description: string;
+  cta: string;
+  url?: string;
+};
+
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
+  status,
+  headers: { 'content-type': 'application/json; charset=UTF-8' }
+});
 
 const config = (env: Env) => ({
   bankroll: Number(env.BANKROLL_CENTS || 200000),
@@ -25,15 +39,58 @@ const config = (env: Env) => ({
   maxTotalLoss: Number(env.MAX_TOTAL_LOSS_CENTS || 200000),
   automationMode: env.AUTOMATION_MODE || 'approval_required',
   metaEnabled: env.META_ENABLED === 'true',
-  offerConfigured: Boolean(env.AFFILIATE_URL)
+  affiliateConfigured: Boolean(env.AFFILIATE_URL),
+  whatsappConfigured: Boolean(env.WHATSAPP_NUMBER)
 });
 
-const landingPage = (env: Env, requestUrl: URL) => {
-  const name = env.OFFER_NAME || 'Recommended service';
-  const description = env.OFFER_DESCRIPTION || 'Explore this offer and see whether it is right for you.';
-  const qs = requestUrl.search;
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${name}</title><style>body{font-family:system-ui;max-width:760px;margin:0 auto;padding:28px 18px;background:#f7f7f7;color:#111}.card{background:#fff;border:1px solid #ddd;border-radius:18px;padding:28px;margin-top:12vh;box-shadow:0 8px 30px #0000000d}h1{font-size:34px;margin:0 0 12px}p{font-size:18px;line-height:1.55;color:#444}.cta{display:inline-block;background:#111;color:#fff;text-decoration:none;padding:14px 20px;border-radius:10px;font-weight:700;margin-top:10px}.note{font-size:13px;color:#666;margin-top:24px}</style></head><body><main class="card"><h1>${name}</h1><p>${description}</p><a class="cta" href="/go${qs}">Learn more</a><p class="note">Disclosure: This page may contain an affiliate link. If you purchase through it, we may earn a commission at no extra cost to you.</p></main></body></html>`;
-};
+const esc = (value: string) => value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
+
+function offers(env: Env): Offer[] {
+  const list: Offer[] = [];
+  if (env.AFFILIATE_URL) {
+    list.push({
+      id: 'affiliate-1',
+      type: 'affiliate',
+      name: env.OFFER_NAME || 'Recommended service',
+      description: env.OFFER_DESCRIPTION || 'Explore this offer and see whether it is right for you.',
+      cta: 'Learn more',
+      url: env.AFFILIATE_URL
+    });
+  }
+  list.push({
+    id: 'lead-1',
+    type: 'lead',
+    name: 'Get a free consultation',
+    description: 'Tell us what you need and we will connect you with a suitable provider.',
+    cta: 'Request help'
+  });
+  list.push({
+    id: 'service-1',
+    type: 'service',
+    name: 'Get a custom quote',
+    description: 'Request a quote for digital, marketing, design or AI-related services.',
+    cta: 'Get a quote'
+  });
+  list.push({
+    id: 'digital-1',
+    type: 'digital',
+    name: 'Digital toolkit',
+    description: 'A future-ready digital product slot. Configure the product and payment flow before advertising it.',
+    cta: 'View toolkit'
+  });
+  return list;
+}
+
+function landingPage(env: Env, requestUrl: URL) {
+  const list = offers(env);
+  const cards = list.map((o) => `<article class="card"><span class="tag">${esc(o.type)}</span><h2>${esc(o.name)}</h2><p>${esc(o.description)}</p><a class="cta" href="/offer/${o.id}${requestUrl.search}">${esc(o.cta)}</a>${o.type === 'affiliate' ? '<p class="note">Affiliate disclosure: we may earn a commission if you purchase through this link, at no extra cost to you.</p>' : ''}</article>`).join('');
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Affiliate Engine</title><style>body{font-family:system-ui;max-width:1000px;margin:0 auto;padding:24px 18px;background:#f7f7f7;color:#111}.hero{padding:28px 0}.hero h1{font-size:38px;margin:0 0 8px}.hero p{font-size:18px;color:#555}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}.card{background:#fff;border:1px solid #ddd;border-radius:18px;padding:22px;box-shadow:0 8px 30px #0000000d}.tag{font-size:12px;text-transform:uppercase;color:#666;font-weight:700;letter-spacing:.08em}.card h2{margin:8px 0}.card p{font-size:16px;line-height:1.5;color:#444}.cta{display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700;margin-top:6px}.note{font-size:12px!important;color:#777!important;margin-top:16px}</style></head><body><main><section class="hero"><h1>Find the right solution</h1><p>Compare useful services, request help, or explore an available offer.</p></section><section class="grid">${cards}</section></main></body></html>`;
+}
+
+function leadForm(title: string, kind: string, requestUrl: URL) {
+  const campaign = requestUrl.searchParams.get('campaign') || '';
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>body{font-family:system-ui;max-width:680px;margin:0 auto;padding:28px 18px;background:#f7f7f7}.card{background:#fff;border:1px solid #ddd;border-radius:18px;padding:26px;margin-top:8vh}label{display:block;font-weight:650;margin:14px 0 6px}input,textarea{width:100%;box-sizing:border-box;padding:12px;border:1px solid #bbb;border-radius:9px;font:inherit}textarea{min-height:120px}.cta{margin-top:18px;background:#111;color:#fff;border:0;padding:13px 18px;border-radius:10px;font-weight:700}.note{font-size:12px;color:#666;line-height:1.5}</style></head><body><main class="card"><h1>${esc(title)}</h1><form method="post" action="/api/leads"><input type="hidden" name="kind" value="${esc(kind)}"><input type="hidden" name="campaign" value="${esc(campaign)}"><label>Name</label><input name="name" required maxlength="120"><label>Phone or WhatsApp</label><input name="phone" required maxlength="40"><label>What do you need?</label><textarea name="message" maxlength="1000"></textarea><label><input type="checkbox" name="consent" value="yes" required> I agree to be contacted about this request.</label><button class="cta" type="submit">Submit request</button></form><p class="note">We use the information you submit only to respond to your request and provide the requested service.</p></main></body></html>`;
+}
 
 async function ensureSchema(env: Env) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, campaign_id TEXT, amount_cents INTEGER NOT NULL DEFAULT 0, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`).run();
@@ -43,53 +100,89 @@ async function ensureSchema(env: Env) {
 
 async function totals(env: Env) {
   await ensureSchema(env);
-  const r = await env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN type='spend' THEN amount_cents ELSE 0 END),0) spend, COALESCE(SUM(CASE WHEN type='commission' THEN amount_cents ELSE 0 END),0) commission, SUM(CASE WHEN type='commission' THEN 1 ELSE 0 END) conversions, SUM(CASE WHEN type='click' THEN 1 ELSE 0 END) clicks, SUM(CASE WHEN type='impression' THEN 1 ELSE 0 END) impressions FROM events`).first<Record<string, number>>();
-  return { spend: Number(r?.spend || 0), commission: Number(r?.commission || 0), conversions: Number(r?.conversions || 0), clicks: Number(r?.clicks || 0), impressions: Number(r?.impressions || 0) };
+  const r = await env.DB.prepare(`SELECT COALESCE(SUM(CASE WHEN type='spend' THEN amount_cents ELSE 0 END),0) spend, COALESCE(SUM(CASE WHEN type='commission' THEN amount_cents ELSE 0 END),0) commission, COALESCE(SUM(CASE WHEN type='revenue' THEN amount_cents ELSE 0 END),0) revenue, SUM(CASE WHEN type='lead' THEN 1 ELSE 0 END) leads, SUM(CASE WHEN type='sale' THEN 1 ELSE 0 END) sales, SUM(CASE WHEN type='click' THEN 1 ELSE 0 END) clicks, SUM(CASE WHEN type='impression' THEN 1 ELSE 0 END) impressions FROM events`).first<Record<string, number>>();
+  const revenue = Number(r?.revenue || 0) + Number(r?.commission || 0);
+  return { spend: Number(r?.spend || 0), commission: Number(r?.commission || 0), revenue, leads: Number(r?.leads || 0), sales: Number(r?.sales || 0), clicks: Number(r?.clicks || 0), impressions: Number(r?.impressions || 0) };
 }
 
-function decision(t: {spend:number; commission:number; conversions:number}, c: ReturnType<typeof config>) {
-  const profit = t.commission - t.spend;
-  const roas = t.spend ? t.commission / t.spend : null;
+function decision(t: {spend:number; revenue:number; sales:number; leads:number}, c: ReturnType<typeof config>) {
+  const profit = t.revenue - t.spend;
+  const roas = t.spend ? t.revenue / t.spend : null;
   if (t.spend >= c.maxTotalLoss) return { action:'PAUSE_ALL', reason:'Total loss cap reached' };
   if (t.spend >= c.bankroll) return { action:'PAUSE_ALL', reason:'Bankroll ceiling reached' };
   if (profit < 0 && t.spend >= c.maxDailySpend) return { action:'PAUSE_LOSERS', reason:'Negative result after test budget' };
-  if (t.conversions >= 3 && profit > 0 && roas !== null && roas >= 1.5) return { action:'SCALE_CANDIDATE', reason:'Positive profit with sufficient conversions' };
+  if (t.sales >= 3 && profit > 0 && roas !== null && roas >= 1.5) return { action:'SCALE_CANDIDATE', reason:'Positive profit with sufficient sales' };
+  if (t.leads >= 5 && profit > 0) return { action:'SCALE_CANDIDATE', reason:'Lead funnel is producing positive measured revenue' };
   return { action:'HOLD', reason:'Need more data before changing spend' };
+}
+
+async function recordEvent(env: Env, type: string, campaignId: string | null, amountCents: number, metadata: Record<string, unknown> = {}) {
+  await ensureSchema(env);
+  await env.DB.prepare('INSERT INTO events(type,campaign_id,amount_cents,metadata) VALUES(?,?,?,?)').bind(type, campaignId, amountCents, JSON.stringify(metadata)).run();
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/') return new Response(landingPage(env, url), {headers:{'content-type':'text/html; charset=UTF-8'}});
+    if (url.pathname === '/') return new Response(landingPage(env, url), { headers: { 'content-type':'text/html; charset=UTF-8' } });
     if (url.pathname === '/dashboard') {
-      const dashboard = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Affiliate Engine</title><style>body{font-family:system-ui;max-width:1000px;margin:30px auto;padding:0 18px;background:#f7f7f7}.hero{padding:18px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.card{background:#fff;border:1px solid #ddd;border-radius:14px;padding:16px}.value{font-size:24px;font-weight:750;margin-top:5px}button{padding:10px 14px;border-radius:9px;border:1px solid #aaa;background:#fff}pre{background:#111;color:#eee;padding:16px;border-radius:12px;overflow:auto}</style></head><body><div class="hero"><h1>Affiliate Engine V1</h1><p>Cloudflare Worker + D1. Controlled affiliate testing with hard bankroll limits.</p></div><div class="grid" id="cards"></div><p><button onclick="load()">Refresh</button></p><pre id="decision">Loading...</pre><script>async function load(){try{const r=await fetch('/api/metrics');const m=await r.json();if(!r.ok)throw Error(m.error||'API error');const labels=[['Spend',m.spend],['Commission',m.commission],['Profit',m.profitCents],['Conversions',m.conversions],['Clicks',m.clicks],['CPA',m.cpaCents??'-'],['ROAS',m.roas??'-']];document.getElementById('cards').innerHTML=labels.map(x=>'<div class="card"><div>'+x[0]+'</div><div class="value">'+x[1]+'</div></div>').join('');document.getElementById('decision').textContent=JSON.stringify(m.decision,null,2)}catch(e){document.getElementById('decision').textContent=e.message}}load();</script></body></html>`;
+      const dashboard = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Affiliate Engine</title><style>body{font-family:system-ui;max-width:1050px;margin:30px auto;padding:0 18px;background:#f7f7f7}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px}.card{background:#fff;border:1px solid #ddd;border-radius:14px;padding:16px}.value{font-size:24px;font-weight:750;margin-top:5px}button{padding:10px 14px;border-radius:9px;border:1px solid #aaa;background:#fff}pre{background:#111;color:#eee;padding:16px;border-radius:12px;overflow:auto}</style></head><body><h1>Revenue Engine V1</h1><p>One controlled engine for affiliate, lead, service and digital-product funnels.</p><div class="grid" id="cards"></div><p><button onclick="load()">Refresh</button></p><pre id="decision">Loading...</pre><script>async function load(){try{const r=await fetch('/api/metrics');const m=await r.json();if(!r.ok)throw Error(m.error||'API error');const labels=[['Spend',m.spend],['Revenue',m.revenue],['Profit',m.profitCents],['Leads',m.leads],['Sales',m.sales],['Clicks',m.clicks],['ROAS',m.roas??'-']];document.getElementById('cards').innerHTML=labels.map(x=>'<div class="card"><div>'+x[0]+'</div><div class="value">'+x[1]+'</div></div>').join('');document.getElementById('decision').textContent=JSON.stringify(m.decision,null,2)}catch(e){document.getElementById('decision').textContent=e.message}}load();</script></body></html>`;
       return new Response(dashboard, {headers:{'content-type':'text/html; charset=UTF-8'}});
     }
     if (url.pathname === '/health') {
       try { await ensureSchema(env); return json({ok:true,service:'affiliate-engine-v1',runtime:'cloudflare-worker',database:'d1'}); }
       catch { return json({ok:false,service:'affiliate-engine-v1',runtime:'cloudflare-worker',database:'d1-unavailable'},503); }
     }
-    if (url.pathname === '/api/config' && request.method === 'GET') return json({...config(env), moneyMovingActionsRequireApproval:true, database:'d1'});
+    if (url.pathname === '/api/config' && request.method === 'GET') return json({...config(env), moneyMovingActionsRequireApproval:true, database:'d1', monetizationModes:['affiliate','lead','service','digital']});
     if (url.pathname === '/api/metrics' && request.method === 'GET') {
-      try { const t=await totals(env); const profit=t.commission-t.spend; return json({...t,profitCents:profit,cpaCents:t.conversions?Math.round(t.spend/t.conversions):null,roas:t.spend?Number((t.commission/t.spend).toFixed(2)):null,decision:decision(t,config(env)),bankrollRemainingCents:Math.max(0,config(env).bankroll-t.spend)}); }
+      try { const t=await totals(env); const profit=t.revenue-t.spend; return json({...t,profitCents:profit,cpaCents:t.leads?Math.round(t.spend/t.leads):null,roas:t.spend?Number((t.revenue/t.spend).toFixed(2)):null,decision:decision(t,config(env)),bankrollRemainingCents:Math.max(0,config(env).bankroll-t.spend)}); }
       catch { return json({error:'Failed to calculate metrics'},500); }
+    }
+    if (url.pathname.startsWith('/offer/') && request.method === 'GET') {
+      const id = url.pathname.slice('/offer/'.length);
+      const offer = offers(env).find((o) => o.id === id);
+      if (!offer) return json({error:'Offer not found'},404);
+      const campaign = url.searchParams.get('campaign');
+      await recordEvent(env, 'click', campaign, 0, {offerId:offer.id, offerType:offer.type});
+      if (offer.type === 'affiliate' && offer.url) return Response.redirect(offer.url, 302);
+      if (offer.type === 'lead') return new Response(leadForm('Request a free consultation', 'lead', url), {headers:{'content-type':'text/html; charset=UTF-8'}});
+      if (offer.type === 'service') return new Response(leadForm('Get a custom quote', 'service', url), {headers:{'content-type':'text/html; charset=UTF-8'}});
+      return new Response('<!doctype html><html><body style="font-family:system-ui;max-width:680px;margin:40px auto;padding:20px"><h1>Digital toolkit coming soon</h1><p>This product slot is not live yet. We will only advertise it after a real product and payment/delivery flow are configured.</p></body></html>', {headers:{'content-type':'text/html; charset=UTF-8'}});
     }
     if (url.pathname === '/go' && request.method === 'GET') {
       if (!env.AFFILIATE_URL) return json({error:'Affiliate URL not configured'},503);
-      await ensureSchema(env);
-      const metadata = Object.fromEntries(url.searchParams.entries());
-      await env.DB.prepare('INSERT INTO events(type,campaign_id,amount_cents,metadata) VALUES(?,?,?,?)').bind('click', url.searchParams.get('campaign') || null, 0, JSON.stringify(metadata)).run();
+      await recordEvent(env, 'click', url.searchParams.get('campaign') || null, 0, {offerId:'affiliate-1', offerType:'affiliate'});
       return Response.redirect(env.AFFILIATE_URL, 302);
+    }
+    if (url.pathname === '/lead' && request.method === 'GET') return new Response(leadForm('Request a free consultation', 'lead', url), {headers:{'content-type':'text/html; charset=UTF-8'}});
+    if (url.pathname === '/service' && request.method === 'GET') return new Response(leadForm('Get a custom quote', 'service', url), {headers:{'content-type':'text/html; charset=UTF-8'}});
+    if (url.pathname === '/whatsapp' && request.method === 'GET') {
+      if (!env.WHATSAPP_NUMBER) return json({error:'WhatsApp number not configured'},503);
+      const campaign = url.searchParams.get('campaign');
+      await recordEvent(env, 'click', campaign || null, 0, {offerId:'whatsapp', offerType:'lead'});
+      const message = encodeURIComponent('Hi, I found you through Affiliate Engine and would like help.');
+      return Response.redirect(`https://wa.me/${env.WHATSAPP_NUMBER.replace(/\D/g,'')}?text=${message}`, 302);
+    }
+    if (url.pathname === '/api/leads' && request.method === 'POST') {
+      const form = await request.formData().catch(() => null);
+      if (!form) return json({error:'Invalid form'},400);
+      const name = String(form.get('name') || '').trim();
+      const phone = String(form.get('phone') || '').trim();
+      const message = String(form.get('message') || '').trim();
+      const kind = String(form.get('kind') || 'lead');
+      const campaign = String(form.get('campaign') || '') || null;
+      if (!name || !phone || form.get('consent') !== 'yes') return json({error:'Name, phone and consent are required'},400);
+      await recordEvent(env, 'lead', campaign, 0, {kind, name, phone, message, consent:true});
+      return new Response('<!doctype html><html><body style="font-family:system-ui;max-width:680px;margin:40px auto;padding:20px"><h1>Request received</h1><p>Thanks. We received your request and will follow up.</p></body></html>', {headers:{'content-type':'text/html; charset=UTF-8'}});
     }
     if (url.pathname === '/api/events' && request.method === 'POST') {
       const secret=env.ADMIN_SECRET;
       if (secret && request.headers.get('x-admin-secret') !== secret) return json({error:'Unauthorized'},401);
       const body=await request.json().catch(()=>null) as {type?:string;campaignId?:string;amount?:number;metadata?:object}|null;
-      if (!body || !['spend','commission','click','impression'].includes(body.type || '')) return json({error:'Invalid event type'},400);
-      const type=body.type!; const amountCents=(type==='click'||type==='impression')?0:Math.round(Number(body.amount||0)*100);
+      if (!body || !['spend','commission','revenue','sale','click','impression','lead'].includes(body.type || '')) return json({error:'Invalid event type'},400);
+      const type=body.type!; const amountCents=(type==='click'||type==='impression'||type==='lead'||type==='sale')?0:Math.round(Number(body.amount||0)*100);
       if (!Number.isFinite(amountCents)||amountCents<0) return json({error:'Invalid amount'},400);
-      await ensureSchema(env);
-      await env.DB.prepare('INSERT INTO events(type,campaign_id,amount_cents,metadata) VALUES(?,?,?,?)').bind(type,body.campaignId||null,amountCents,JSON.stringify(body.metadata||{})).run();
+      await recordEvent(env,type,body.campaignId||null,amountCents,(body.metadata||{}) as Record<string,unknown>);
       return json(await totals(env),201);
     }
     return json({error:'Not found'},404);
