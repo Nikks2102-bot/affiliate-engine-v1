@@ -1,12 +1,12 @@
 {
   "name": "affiliate-engine-v1",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
-  "description": "Cloudflare-only affiliate engine using Workers and D1.",
+  "description": "NIKKSORA growth engine using Cloudflare Workers and D1.",
   "scripts": {
-    "dev": "wrangler dev",
-    "build": "tsc --noEmit",
-    "deploy": "wrangler deploy",
+    "dev": "node scripts/inject-whatsapp-bot.mjs && wrangler dev",
+    "build": "node scripts/inject-whatsapp-bot.mjs && tsc --noEmit",
+    "deploy": "node scripts/inject-whatsapp-bot.mjs && wrangler deploy",
     "cf-typegen": "wrangler types"
   },
   "devDependencies": {
